@@ -15,7 +15,7 @@ pipeline{
         }
          stage("Check up workspace"){
             steps{
-               git branch: 'main', credentials: 'github', url: 'https://github.com/Khmoussi/EasyApply.git'
+               git branch: 'main', credentialsId: 'github', url: 'https://github.com/Khmoussi/EasyApply.git'
             }
 
         }
