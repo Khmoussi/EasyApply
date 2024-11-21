@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: EasyApply
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            clientId: 818448829674-q9hipt7tn6mscg3ugllr0obig2g1q9s5.apps.googleusercontent.com
+            clientSecret: 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
+
+
+server:
+  port: 9001
+#Oauth2
