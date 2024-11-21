@@ -25,7 +25,7 @@ public class RabbitMqReceiverService {
             factory.setPort(5672);         // AMQP port
 
             Connection connection = factory.newConnection();
-            channel  = connection.createChannel() ;
+            this.channel  = connection.createChannel() ;
 
 
         }catch (IOException e){
@@ -40,7 +40,7 @@ public class RabbitMqReceiverService {
            try {
 
                boolean durable = true;
-               channel.queueDeclare(QUEUE_NAME, durable, false, false, null);
+               this.channel.queueDeclare(QUEUE_NAME, durable, false, false, null);
 
                DeliverCallback deliverCallback = (consumerTag, delivery) -> {
                    String message = new String(delivery.getBody(), "UTF-8");
@@ -48,7 +48,7 @@ public class RabbitMqReceiverService {
 
                    System.out.println(" [x] Received '" + customMessage.getFailedMap() + "'");
                };
-               channel.basicConsume(QUEUE_NAME, true, deliverCallback, consumerTag -> {
+               this.channel.basicConsume(QUEUE_NAME, true, deliverCallback, consumerTag -> {
                });
            }catch (IOException e){
                e.printStackTrace();

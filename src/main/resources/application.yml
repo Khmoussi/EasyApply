@@ -6,8 +6,8 @@ spring:
       client:
         registration:
           google:
-            clientId: *****
-            clientSecret: *****
+            clientId: "818448829674-tmg0c15hr9ju5m6437nrc8rb1bhv3g90.apps.googleusercontent.com"
+            clientSecret: "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"
 
 server:
   port: 9001
