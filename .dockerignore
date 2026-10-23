@@ -1,0 +1,14 @@
+target/
+.idea/
+.git/
+.gitignore
+*.iml
+.env
+.env.*
+!.env.example
+application-local.yml
+**/application-local.yml
+*.apps.googleusercontent.com.json
+client_secret*.json
+HELP.md
+Jenkinsfile
