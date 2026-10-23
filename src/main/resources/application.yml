@@ -39,7 +39,10 @@ server:
   servlet:
     session:
       cookie:
-        same-site: lax
+        # Cross-origin local frontend → Render needs None + Secure (set on Render).
+        # Local backend: leave defaults (lax / false).
+        same-site: ${SESSION_COOKIE_SAME_SITE:lax}
+        secure: ${SESSION_COOKIE_SECURE:false}
         http-only: true
 
 # Former RabbitMQ auto-email path — now in-process after scrape.
