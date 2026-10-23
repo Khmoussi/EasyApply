@@ -1,8 +1,8 @@
 package com.example.EasyApply.Services;
 
-
 import com.example.EasyApply.Data.CustomEmail;
 import com.example.EasyApply.Data.CustomEmailResponse;
+import com.example.EasyApply.Data.EmailAttachment;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.googleapis.javanet.GoogleNetHttpTransport;
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
@@ -10,6 +10,7 @@ import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.gson.GsonFactory;
 import com.google.api.services.gmail.Gmail;
 import com.google.api.services.gmail.model.Message;
+import jakarta.activation.DataHandler;
 import jakarta.mail.MessagingException;
 import jakarta.mail.Multipart;
 import jakarta.mail.Session;
@@ -17,46 +18,127 @@ import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeMultipart;
+import jakarta.mail.util.ByteArrayDataSource;
 import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.*;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-
 
 @Service
 public class GmailService {
 
-    private static final String APPLICATION_NAME = "EasyApply";  // Update to your application name
+    private static final String APPLICATION_NAME = "EasyApply";
     private static final JsonFactory JSON_FACTORY = GsonFactory.getDefaultInstance();
 
-    // Builds and returns a Gmail API client service
     private Gmail getGmailService(Credential credential) throws GeneralSecurityException, IOException {
         return new Gmail.Builder(GoogleNetHttpTransport.newTrustedTransport(), JSON_FACTORY, credential)
                 .setApplicationName(APPLICATION_NAME)
                 .build();
     }
 
-    // Method to send an email using the Gmail API
+    public CustomEmailResponse sendAutomatedEmails(
+            String subject,
+            String bodyText,
+            EmailAttachment attachment,
+            Credential credential,
+            List<CustomEmail> emails,
+            String senderName
+    ) {
+        int poolSize = 10;
+        int maxQueueSize = 100;
+        ExecutorService executorService = new ThreadPoolExecutor(
+                poolSize,
+                poolSize,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new ArrayBlockingQueue<>(maxQueueSize)
+        );
+
+        List<CustomEmail> sentEmails = new CopyOnWriteArrayList<>();
+        List<CustomEmail> failedEmails = new CopyOnWriteArrayList<>();
+        AtomicBoolean status = new AtomicBoolean(true);
+        EmailAttachment safeAttachment = attachment != null ? attachment : EmailAttachment.empty();
+
+        for (CustomEmail customEmail : emails) {
+            executorService.submit(() -> {
+                try {
+                    // Keep fixed recipient for now (testing).
+                    sendEmailWithAttachment(
+                            "khmoussiaouina2@gmail.com",
+                            subject,
+                            personalizeMotivationLetter(bodyText, customEmail.getCompanyName(), senderName),
+                            safeAttachment,
+                            credential
+                    );
+                    sentEmails.add(customEmail);
+                    System.out.println("Sent email to: " + customEmail.getEmail());
+                } catch (GoogleJsonResponseException e) {
+                    if (e.getStatusCode() == 401) {
+                        e.printStackTrace();
+                        status.set(false);
+                    }
+                    failedEmails.add(customEmail);
+                } catch (Exception e) {
+                    failedEmails.add(customEmail);
+                    e.printStackTrace();
+                }
+            });
+        }
+
+        // Wait until all sends finish — HTTP response includes the final sent/failed lists.
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(30, TimeUnit.MINUTES)) {
+                System.err.println("Some tasks were not completed within the timeout.");
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
+        } finally {
+            executorService.shutdown();
+        }
+
+        return new CustomEmailResponse(status.get(), new ArrayList<>(sentEmails), new ArrayList<>(failedEmails));
+    }
+
     public void sendEmail(String to, String subject, String bodyText, Credential credential)
             throws MessagingException, IOException, GeneralSecurityException {
         Gmail service = getGmailService(credential);
-
-        // Create an email message
         MimeMessage email = createEmail(to, "me", subject, bodyText);
-
-        // Send the email
         Message message = createMessageWithEmail(email);
         service.users().messages().send("me", message).execute();
     }
 
-    // Creates a MimeMessage email
+    public void sendEmailWithAttachment(
+            String to,
+            String subject,
+            String bodyText,
+            EmailAttachment attachment,
+            Credential credential
+    ) throws MessagingException, IOException, GeneralSecurityException {
+        if (attachment == null || !attachment.isPresent()) {
+            sendEmail(to, subject, bodyText, credential);
+            return;
+        }
+
+        Gmail service = getGmailService(credential);
+        MimeMessage email = createEmailWithAttachment(to, "me", subject, bodyText, attachment);
+        Message message = createMessageWithEmail(email);
+        service.users().messages().send("me", message).execute();
+    }
+
     private MimeMessage createEmail(String to, String from, String subject, String bodyText) throws MessagingException {
         Properties props = new Properties();
         Session session = Session.getDefaultInstance(props, null);
@@ -69,7 +151,6 @@ public class GmailService {
         return email;
     }
 
-    // Encodes a MimeMessage into a Gmail API Message
     private Message createMessageWithEmail(MimeMessage email) throws MessagingException, IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         email.writeTo(buffer);
@@ -81,87 +162,20 @@ public class GmailService {
         return message;
     }
 
-
-
-    // with attachement
-
-
     public String personalizeMotivationLetter(String letter, String companyName, String senderName) {
-        if(companyName.isEmpty())
-            companyName="votre entreprise";
-        return letter.replace("companyName", companyName).replace("[Your Name]",senderName);
-    }
-
-
-    public CustomEmailResponse sendAutomatedEmails(String subject, String bodyText, Path attachmentPath,
-                                                         Credential credential, List<CustomEmail> emails,String senderName)  {
-        int poolSize = 10;
-        int maxQueueSize = 100; // Adjust queue size as needed
-        ExecutorService executorService = new ThreadPoolExecutor(
-                poolSize,
-                poolSize,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new ArrayBlockingQueue<>(maxQueueSize)
-        );       // equivalent but with limited queue size: ExecutorService executorService = Executors.newFixedThreadPool(10); // Customize pool size as needed
-
-
-
-        List<CustomEmail> failedEmails = new CopyOnWriteArrayList<>();
-        AtomicBoolean status= new AtomicBoolean(true);
-        for (CustomEmail customEmail : emails) {
-            executorService.submit(() -> {
-                try {
-                    sendEmailWithAttachment(customEmail.getEmail(), subject,
-                            personalizeMotivationLetter(bodyText, customEmail.getCompanyName(),senderName),
-                            attachmentPath, credential);  // Your email sending logic
-                    System.out.println("Sent email to: " + customEmail.getEmail());
-                } catch (GoogleJsonResponseException e) {
-                    if (e.getStatusCode() == 401) {
-                        e.printStackTrace();
-                        status.set(false);
-                    }
-                    failedEmails.add(customEmail);
-
-                } catch (Exception e) {
-
-                    failedEmails.add(customEmail); // Catch-all for other exceptions
-                    e.printStackTrace();
-                }
-            });
+        if (companyName == null || companyName.isEmpty()) {
+            companyName = "votre entreprise";
         }
-
-        // Properly shut down the executor service
-        executorService.shutdown();
-        try {
-            if (!executorService.awaitTermination(30, TimeUnit.MINUTES)) {
-                System.err.println("Some tasks were not completed within the timeout.");
-                executorService.shutdownNow(); // Force shutdown if tasks are still running
-            }
-        } catch (InterruptedException e) {
-            executorService.shutdownNow();
-            Thread.currentThread().interrupt();
-        }finally {
-            // Properly shut down the executor service
-            executorService.shutdown();
-        }
-
-        return new CustomEmailResponse(status,failedEmails); // Return the list of emails that failed to send
-    }
-    public void sendEmailWithAttachment(String to, String subject, String bodyText, Path attachmentPath, Credential credential)
-            throws MessagingException, IOException, GeneralSecurityException {
-        Gmail service = getGmailService(credential);
-
-        // Create an email message with an attachment
-        MimeMessage email = createEmailWithAttachment(to, "me", subject, bodyText, attachmentPath);
-
-        // Send the email
-        Message message = createMessageWithEmail(email);
-        service.users().messages().send("me", message).execute();
+        return letter.replace("companyName", companyName).replace("[Your Name]", senderName);
     }
 
-    private MimeMessage createEmailWithAttachment(String to, String from, String subject, String bodyHtml, Path attachmentPath)
-            throws MessagingException, IOException {
+    private MimeMessage createEmailWithAttachment(
+            String to,
+            String from,
+            String subject,
+            String bodyHtml,
+            EmailAttachment attachment
+    ) throws MessagingException {
         Properties props = new Properties();
         Session session = Session.getDefaultInstance(props, null);
 
@@ -170,23 +184,19 @@ public class GmailService {
         email.addRecipient(jakarta.mail.Message.RecipientType.TO, new InternetAddress(to));
         email.setSubject(subject);
 
-        // Body part for the main HTML message
         MimeBodyPart htmlBodyPart = new MimeBodyPart();
         htmlBodyPart.setContent(bodyHtml, "text/html");
 
-        // Body part for the attachment
         MimeBodyPart attachmentBodyPart = new MimeBodyPart();
-        attachmentBodyPart.attachFile(attachmentPath.toFile());
+        ByteArrayDataSource dataSource = new ByteArrayDataSource(attachment.content(), "application/pdf");
+        attachmentBodyPart.setDataHandler(new DataHandler(dataSource));
+        attachmentBodyPart.setFileName(attachment.filename());
 
-        // Combine HTML and attachment parts into a multipart
         Multipart multipart = new MimeMultipart();
         multipart.addBodyPart(htmlBodyPart);
         multipart.addBodyPart(attachmentBodyPart);
 
-        // Set the multipart as the email content
         email.setContent(multipart);
-
         return email;
     }
-
 }

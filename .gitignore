@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### Secrets / credentials ###
+*.apps.googleusercontent.com.json
+client_secret*.json
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.properties

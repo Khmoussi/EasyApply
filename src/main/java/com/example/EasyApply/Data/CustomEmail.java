@@ -5,6 +5,9 @@ public class CustomEmail{
     private String email;
     private String companyName;
 
+    public CustomEmail() {
+    }
+
     public CustomEmail(String email, String companyName) {
         this.email = email;
         this.companyName = companyName;

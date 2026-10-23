@@ -1,14 +1,63 @@
 spring:
   application:
     name: EasyApply
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:}
+    username: ${SPRING_DATASOURCE_USERNAME:}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          time_zone: UTC
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 12MB
   security:
     oauth2:
       client:
         registration:
           google:
-            clientId: "818448829674-tmg0c15hr9ju5m6437nrc8rb1bhv3g90.apps.googleusercontent.com"
-            clientSecret: "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"
+            client-id: ${GOOGLE_CLIENT_ID:}
+            client-secret: ${GOOGLE_CLIENT_SECRET:}
+            scope:
+              - openid
+              - profile
+              - email
+              - https://www.googleapis.com/auth/gmail.send
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
 
 server:
-  port: 9001
-#Oauth2
+  # Render sets PORT; local default 9001
+  port: ${PORT:9001}
+  servlet:
+    session:
+      cookie:
+        same-site: lax
+        http-only: true
+
+# Former RabbitMQ auto-email path — now in-process after scrape.
+# Set enabled=true and fill token/path to restore auto-send after /scrap/getEmails.
+easyapply:
+  frontend-url: ${EASYAPPLY_FRONTEND_URL:http://localhost:4200}
+  # LinkedIn company search provider: apify | harvest
+  # Override with env: EASYAPPLY_LINKEDIN_PROVIDER=harvest
+  linkedin:
+    provider: ${EASYAPPLY_LINKEDIN_PROVIDER:harvest}
+  apify:
+    api-key: ${EASYAPPLY_APIFY_API_KEY:}
+  harvest:
+    api-key: ${EASYAPPLY_HARVEST_API_KEY:}
+  serpapi:
+    api-key: ${EASYAPPLY_SERPAPI_API_KEY:}
+  auto-email:
+    enabled: false
+    oauth-token: ""
+    resume-path: ${EASYAPPLY_RESUME_PATH:}
+    sender-name: ${EASYAPPLY_SENDER_NAME:khmoussi aouina}

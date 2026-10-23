@@ -6,9 +6,9 @@ import java.util.List;
 
 public class CompanyDetailsResponse {
     HashMap<String,String> failedMap;
-    HashMap<String, String> successMap;
+    HashMap<String, CompanyDetailsRequest> successMap;
 
-    public CompanyDetailsResponse( HashMap<String, String> successMap,HashMap<String, String> failedMap) {
+    public CompanyDetailsResponse( HashMap<String, CompanyDetailsRequest> successMap,HashMap<String, String> failedMap) {
         this.failedMap = failedMap;
         this.successMap = successMap;
     }
@@ -22,11 +22,11 @@ public class CompanyDetailsResponse {
         this.failedMap = failedMap;
     }
 
-    public HashMap<String, String> getSuccessMap() {
+    public HashMap<String, CompanyDetailsRequest> getSuccessMap() {
         return successMap;
     }
 
-    public void setSuccessMap(HashMap<String, String> successMap) {
+    public void setSuccessMap(HashMap<String, CompanyDetailsRequest> successMap) {
         this.successMap = successMap;
     }
 }

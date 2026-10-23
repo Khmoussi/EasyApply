@@ -1,146 +1,137 @@
 package com.example.EasyApply.Controllers;
 
-import com.example.EasyApply.Data.CustomEmail;
 import com.example.EasyApply.Data.CustomEmailResponse;
+import com.example.EasyApply.Data.EmailAttachment;
+import com.example.EasyApply.Data.EmailRequest;
 import com.example.EasyApply.Services.GmailService;
 import com.google.api.client.auth.oauth2.BearerToken;
 import com.google.api.client.auth.oauth2.Credential;
 import jakarta.mail.MessagingException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
+import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.GeneralSecurityException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Locale;
 
 @RestController
+@RequestMapping("/easyapply")
 public class EmailController {
 
     @Autowired
     private GmailService gmailService;
+
     @GetMapping("/ss")
-    public String a(){
+    public String a() {
         return "ss";
     }
 
     @PostMapping("/sendEmail")
-    public String sendEmail(@RequestBody EmailRequest emailRequest,  @RequestHeader("Authorization") String authorizationHeader) {
+    public ResponseEntity<String> sendEmail(
+            @RequestBody EmailRequest emailRequest,
+            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient googleClient
+    ) {
         try {
-            // Extract the OAuth2 access token from the Authorization header
-            String accessToken = authorizationHeader.replace("Bearer ", "");
-
-            // Create a Credential object using the access token
-            Credential credential = new Credential(BearerToken.authorizationHeaderAccessMethod()).setAccessToken(accessToken);
-
-                       gmailService.sendEmail(emailRequest.getTo(), emailRequest.getSubject(), emailRequest.getBody(), credential);
-            return "Email sent successfully!";
+            Credential credential = credentialFrom(googleClient);
+            if (credential == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Sign in with Google first.");
+            }
+            gmailService.sendEmail(emailRequest.getTo(), emailRequest.getSubject(), emailRequest.getBody(), credential);
+            return ResponseEntity.ok("Email sent successfully!");
         } catch (MessagingException | IOException | GeneralSecurityException e) {
             e.printStackTrace();
-            return "Failed to send email: " + e.getMessage();
+            return ResponseEntity.badRequest().body("Failed to send email: " + e.getMessage());
         }
     }
 
-    @PostMapping("/sendEmailWithAttachment")
-    public String sendEmailWithAttachment(@RequestBody EmailRequest emailRequest, @RequestHeader("Authorization") String authorizationHeader) {
+    @PostMapping(value = "/sendEmailWithAttachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<String> sendEmailWithAttachment(
+            @RequestPart("payload") EmailRequest emailRequest,
+            @RequestPart(value = "attachment", required = false) MultipartFile attachment,
+            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient googleClient
+    ) {
         try {
-            // Extract the OAuth2 access token from the Authorization header
-            String accessToken = authorizationHeader.replace("Bearer ", "");
-
-            // Create a Credential object using the access token
-            Credential credential = new Credential(BearerToken.authorizationHeaderAccessMethod()).setAccessToken(accessToken);
-
-            Path attachmentPath = Paths.get(emailRequest.getAttachmentPath());
+            Credential credential = credentialFrom(googleClient);
+            if (credential == null) {
+                return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Sign in with Google first.");
+            }
+            EmailAttachment emailAttachment = toEmailAttachment(attachment);
+            if (attachment != null && !attachment.isEmpty() && !emailAttachment.isPresent()) {
+                return ResponseEntity.badRequest().body("Attachment must be a PDF file.");
+            }
             gmailService.sendEmailWithAttachment(
                     emailRequest.getTo(),
                     emailRequest.getSubject(),
                     emailRequest.getBody(),
-                    attachmentPath,
+                    emailAttachment,
                     credential
             );
-            return "Email with attachment sent successfully!";
+            return ResponseEntity.ok("Email with attachment sent successfully!");
         } catch (MessagingException | IOException | GeneralSecurityException e) {
             e.printStackTrace();
-            return "Failed to send email with attachment: " + e.getMessage();
+            return ResponseEntity.badRequest().body("Failed to send email with attachment: " + e.getMessage());
         }
     }
 
-    @PostMapping("/sendAutomatedEmailsWithAttachment")
-    public ResponseEntity<?> sendAutomatedEmailsWithAttachment(@RequestBody EmailRequest emailRequest, @RequestHeader("Authorization") String authorizationHeader) {
-
-            // Extract the OAuth2 access token from the Authorization header
-            String accessToken = authorizationHeader.replace("Bearer ", "");
-
-            // Create a Credential object using the access token
-            Credential credential = new Credential(BearerToken.authorizationHeaderAccessMethod()).setAccessToken(accessToken);
-
-            Path attachmentPath = Paths.get(emailRequest.getAttachmentPath());
-          CustomEmailResponse result=  gmailService.sendAutomatedEmails(
-
-                    emailRequest.getSubject(),
-                    emailRequest.getBody(),
-                    attachmentPath,
-                    credential,
-                    emailRequest.getEmailList(),
-                  emailRequest.getSenderName()
-            );
-          if(result.isStatus()){
-              if(result.getEmails().isEmpty())
-                  return ResponseEntity.ok("Email with attachment sent successfully!");
-              return ResponseEntity.ok(result);
-          }else{
-              return ResponseEntity.badRequest().body("Token invalid ");
-          }
-
-
+    @PostMapping(value = "/sendAutomatedEmailsWithAttachment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> sendAutomatedEmailsWithAttachment(
+            @RequestPart("payload") EmailRequest emailRequest,
+            @RequestPart(value = "attachment", required = false) MultipartFile attachment,
+            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient googleClient
+    ) throws IOException {
+        Credential credential = credentialFrom(googleClient);
+        if (credential == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Sign in with Google first.");
+        }
+        EmailAttachment emailAttachment = toEmailAttachment(attachment);
+        if (attachment != null && !attachment.isEmpty() && !emailAttachment.isPresent()) {
+            return ResponseEntity.badRequest().body("Attachment must be a PDF file.");
+        }
+        CustomEmailResponse result = gmailService.sendAutomatedEmails(
+                emailRequest.getSubject(),
+                emailRequest.getBody(),
+                emailAttachment,
+                credential,
+                emailRequest.getEmailList(),
+                emailRequest.getSenderName()
+        );
+        if (!result.isStatus()) {
+            return ResponseEntity.badRequest().body(result);
+        }
+        return ResponseEntity.ok(result);
     }
 
-}
-
-// EmailRequest class for request payload
-class EmailRequest {
-    private String to;
-    private String subject;
-    private String body;
-    private String attachmentPath="";
-    private ArrayList<CustomEmail> emailList;
-    private  String senderName;
-
-    public EmailRequest(String to, String subject, String body, String attachmentPath, String senderName) {
-        this.to = to;
-        this.subject = subject;
-        this.body = body;
-        this.attachmentPath = attachmentPath;
-        this.senderName=senderName;
-    }
-    // Getters and Setters
-    public String getTo() { return to; }
-
-    public ArrayList<CustomEmail> getEmailList() {
-        return emailList;
+    private EmailAttachment toEmailAttachment(MultipartFile attachment) throws IOException {
+        if (attachment == null || attachment.isEmpty()) {
+            return EmailAttachment.empty();
+        }
+        String originalName = attachment.getOriginalFilename() != null ? attachment.getOriginalFilename() : "resume.pdf";
+        String contentType = attachment.getContentType() != null ? attachment.getContentType().toLowerCase(Locale.ROOT) : "";
+        boolean pdfByName = originalName.toLowerCase(Locale.ROOT).endsWith(".pdf");
+        boolean pdfByType = contentType.contains("pdf");
+        if (!pdfByName && !pdfByType) {
+            return EmailAttachment.empty();
+        }
+        String filename = pdfByName ? originalName : "resume.pdf";
+        return new EmailAttachment(attachment.getBytes(), filename);
     }
 
-    public void setEmailList(ArrayList<CustomEmail> emailList) {
-        this.emailList = emailList;
-    }
-
-    public void setTo(String to) { this.to = to; }
-    public String getSubject() { return subject; }
-    public void setSubject(String subject) { this.subject = subject; }
-    public String getBody() { return body; }
-    public void setBody(String body) { this.body = body; }
-    public String getAttachmentPath() { return attachmentPath; }
-    public void setAttachmentPath(String attachmentPath) { this.attachmentPath = attachmentPath; }
-
-    public String getSenderName() {
-        return senderName;
-    }
-
-    public void setSenderName(String senderName) {
-        this.senderName = senderName;
+    private Credential credentialFrom(OAuth2AuthorizedClient googleClient) {
+        if (googleClient == null || googleClient.getAccessToken() == null) {
+            return null;
+        }
+        return new Credential(BearerToken.authorizationHeaderAccessMethod())
+                .setAccessToken(googleClient.getAccessToken().getTokenValue());
     }
 }
-
