@@ -1,5 +1,7 @@
 package com.example.EasyApply.Controllers;
 
+import com.example.EasyApply.Services.UserAccountService;
+import com.example.EasyApply.domain.AppUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -14,16 +16,24 @@ import java.util.Map;
 @RequestMapping("/easyapply/auth")
 public class AuthController {
 
+    private final UserAccountService userAccountService;
+
+    public AuthController(UserAccountService userAccountService) {
+        this.userAccountService = userAccountService;
+    }
+
     @GetMapping("/me")
     public ResponseEntity<?> me(@AuthenticationPrincipal OAuth2User user) {
         if (user == null) {
             return ResponseEntity.ok(Map.of("authenticated", false));
         }
+        AppUser persisted = userAccountService.upsertFromOAuth(user);
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("authenticated", true);
-        body.put("name", user.getAttribute("name"));
-        body.put("email", user.getAttribute("email"));
-        body.put("picture", user.getAttribute("picture"));
+        body.put("id", persisted.getId());
+        body.put("name", persisted.getName());
+        body.put("email", persisted.getEmail());
+        body.put("picture", persisted.getPicture());
         return ResponseEntity.ok(body);
     }
 }

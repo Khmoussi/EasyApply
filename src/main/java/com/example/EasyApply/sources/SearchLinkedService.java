@@ -1,9 +1,7 @@
 package com.example.EasyApply.sources;
 
-import com.example.EasyApply.Data.CompanyDetailsRequest;
+import com.example.EasyApply.sources.data.CompanySearchResponse;
 import com.example.EasyApply.sources.data.LinkedInRequest;
-
-import java.util.List;
 
 /**
  * LinkedIn company search. Implementation is chosen by
@@ -11,5 +9,5 @@ import java.util.List;
  */
 public interface SearchLinkedService {
 
-    List<CompanyDetailsRequest> searchCompanies(LinkedInRequest request);
+    CompanySearchResponse searchCompanies(LinkedInRequest request);
 }

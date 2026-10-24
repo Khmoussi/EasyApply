@@ -6,6 +6,9 @@ public class CompanyDetailsRequest {
     private String country;
     private String state;
     private String domain;
+    /** Stable id from the LinkedIn provider (Harvest id, etc.). */
+    private String id;
+    private String linkedinUrl;
 
     public CompanyDetailsRequest() {
     }
@@ -21,6 +24,24 @@ public class CompanyDetailsRequest {
         this.country = country;
         this.state = state;
         this.domain = domain;
+    }
+
+    public CompanyDetailsRequest(
+            String website,
+            String name,
+            String country,
+            String state,
+            String domain,
+            String id,
+            String linkedinUrl
+    ) {
+        this.website = website;
+        this.name = name;
+        this.country = country;
+        this.state = state;
+        this.domain = domain;
+        this.id = id;
+        this.linkedinUrl = linkedinUrl;
     }
 
     public String getWebsite() {
@@ -61,5 +82,21 @@ public class CompanyDetailsRequest {
 
     public void setDomain(String domain) {
         this.domain = domain;
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public String getLinkedinUrl() {
+        return linkedinUrl;
+    }
+
+    public void setLinkedinUrl(String linkedinUrl) {
+        this.linkedinUrl = linkedinUrl;
     }
 }

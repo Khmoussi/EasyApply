@@ -1,12 +1,14 @@
 package com.example.EasyApply.sources;
 
 import com.example.EasyApply.Data.CompanyDetailsRequest;
+import com.example.EasyApply.sources.data.CompanySearchResponse;
 import com.example.EasyApply.sources.data.HarvestCompanyDetailsResponse;
 import com.example.EasyApply.sources.data.HarvestCompanyDetailsResponse.Company;
 import com.example.EasyApply.sources.data.HarvestCompanyDetailsResponse.CompanyLocation;
 import com.example.EasyApply.sources.data.HarvestCompanyDetailsResponse.Industry;
 import com.example.EasyApply.sources.data.HarvestCompanySearchResponse;
 import com.example.EasyApply.sources.data.HarvestCompanySearchResponse.HarvestCompanyShort;
+import com.example.EasyApply.sources.data.HarvestCompanySearchResponse.Pagination;
 import com.example.EasyApply.sources.data.LinkedInRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -23,12 +25,15 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * Harvest API LinkedIn company search backup.
- * 1) {@code GET /linkedin/company-search} for candidates
+ * 1) {@code GET /linkedin/company-search} for candidates (paginated via {@code page})
  * 2) {@code GET /linkedin/company?url=} for website (needed for email scraping)
  *
  * @see <a href="https://skmtc.dev/harvestapi/apis/harvestapi-linkedin-api-reference/docs/linkedin/company-search/get">company-search</a>
@@ -51,17 +56,18 @@ public class HarvestSearchLinkedService implements SearchLinkedService {
     }
 
     @Override
-    public List<CompanyDetailsRequest> searchCompanies(LinkedInRequest request) {
+    public CompanySearchResponse searchCompanies(LinkedInRequest request) {
         String search = joinNonBlank(request.getKeywords(), " ");
+        int page = request.getPage() > 0 ? request.getPage() : 1;
         if (search.isBlank()) {
             log.warn("Harvest company search skipped: no keywords");
-            return List.of();
+            return CompanySearchResponse.of(List.of(), page, 0);
         }
 
         UriComponentsBuilder uriBuilder = UriComponentsBuilder
                 .fromHttpUrl(SEARCH_URL)
                 .queryParam("search", search)
-                .queryParam("page", 1);
+                .queryParam("page", page);
 
         String location = joinNonBlank(request.getLocation(), ", ");
         if (!location.isBlank()) {
@@ -85,7 +91,7 @@ public class HarvestSearchLinkedService implements SearchLinkedService {
             log.info("Raw Harvest company-search JSON:\n{}", rawJson);
 
             if (rawJson == null || rawJson.isBlank()) {
-                return List.of();
+                return CompanySearchResponse.of(List.of(), page, 0);
             }
 
             HarvestCompanySearchResponse response = objectMapper.readValue(rawJson, HarvestCompanySearchResponse.class);
@@ -96,16 +102,31 @@ public class HarvestSearchLinkedService implements SearchLinkedService {
 
             List<HarvestCompanyShort> elements = response.getElements();
             if (elements == null || elements.isEmpty()) {
-                return List.of();
+                int totalPages = paginationTotalPages(response.getPagination(), page, false);
+                return CompanySearchResponse.of(List.of(), page, totalPages);
             }
 
-            int limit = request.getLimit() > 0 ? request.getLimit() : elements.size();
-            List<HarvestCompanyShort> limited = elements.stream().limit(limit).collect(Collectors.toList());
-            return enrichWithCompanyDetails(limited);
+            Set<String> excludeIds = toLowerSet(request.getExcludeIds());
+            Set<String> excludeUrls = toLowerSet(request.getExcludeLinkedInUrls());
+            List<HarvestCompanyShort> fresh = elements.stream()
+                    .filter(c -> !isExcluded(c, excludeIds, excludeUrls))
+                    .collect(Collectors.toList());
+
+            int skipped = elements.size() - fresh.size();
+            if (skipped > 0) {
+                log.info("Skipped {} already-seen companies before detail enrichment", skipped);
+            }
+
+            int limit = request.getLimit() > 0 ? request.getLimit() : fresh.size();
+            List<HarvestCompanyShort> limited = fresh.stream().limit(limit).collect(Collectors.toList());
+            List<CompanyDetailsRequest> companies = enrichWithCompanyDetails(limited);
+
+            int totalPages = paginationTotalPages(response.getPagination(), page, !elements.isEmpty());
+            return CompanySearchResponse.of(companies, page, totalPages);
 
         } catch (Exception e) {
             log.error("Error calling Harvest LinkedIn API: {}", e.getMessage(), e);
-            return List.of();
+            return CompanySearchResponse.of(List.of(), page, 0);
         }
     }
 
@@ -153,7 +174,15 @@ public class HarvestSearchLinkedService implements SearchLinkedService {
                 );
             }
 
-            result.add(new CompanyDetailsRequest(website, name, country, state, domain));
+            result.add(new CompanyDetailsRequest(
+                    website,
+                    name,
+                    country,
+                    state,
+                    domain,
+                    blankToNull(shortCompany.getId()),
+                    blankToNull(shortCompany.getLinkedinUrl())
+            ));
         }
         return result;
     }
@@ -206,6 +235,40 @@ public class HarvestSearchLinkedService implements SearchLinkedService {
         HttpHeaders headers = new HttpHeaders();
         headers.set("X-API-Key", apiKey);
         return new HttpEntity<>(headers);
+    }
+
+    private static boolean isExcluded(HarvestCompanyShort company, Set<String> excludeIds, Set<String> excludeUrls) {
+        if (company.getId() != null && excludeIds.contains(company.getId().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        if (company.getLinkedinUrl() != null && excludeUrls.contains(company.getLinkedinUrl().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        if (company.getUniversalName() != null && excludeIds.contains(company.getUniversalName().toLowerCase(Locale.ROOT))) {
+            return true;
+        }
+        return false;
+    }
+
+    private static Set<String> toLowerSet(List<String> values) {
+        Set<String> set = new HashSet<>();
+        if (values == null) {
+            return set;
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                set.add(v.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return set;
+    }
+
+    private static int paginationTotalPages(Pagination pagination, int requestedPage, boolean hadElements) {
+        if (pagination != null && pagination.getTotalPages() > 0) {
+            return pagination.getTotalPages();
+        }
+        // Fallback when Harvest omits pagination: assume another page only if this page had results.
+        return hadElements ? requestedPage + 1 : Math.max(requestedPage - 1, 0);
     }
 
     private static String blankToNull(String value) {

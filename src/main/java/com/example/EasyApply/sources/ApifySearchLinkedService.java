@@ -1,6 +1,7 @@
 package com.example.EasyApply.sources;
 
 import com.example.EasyApply.Data.CompanyDetailsRequest;
+import com.example.EasyApply.sources.data.CompanySearchResponse;
 import com.example.EasyApply.sources.data.LinkedInCompanyDTO;
 import com.example.EasyApply.sources.data.LinkedInRequest;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -22,8 +23,11 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Service
 @ConditionalOnProperty(name = "easyapply.linkedin.provider", havingValue = "apify", matchIfMissing = true)
@@ -40,7 +44,14 @@ public class ApifySearchLinkedService implements SearchLinkedService {
     }
 
     @Override
-    public List<CompanyDetailsRequest> searchCompanies(LinkedInRequest request) {
+    public CompanySearchResponse searchCompanies(LinkedInRequest request) {
+        int page = request.getPage() > 0 ? request.getPage() : 1;
+        // Apify sync actor has no page cursor — only the first page is supported.
+        if (page > 1) {
+            log.info("Apify LinkedIn search has no pagination; ignoring page={}", page);
+            return new CompanySearchResponse(List.of(), page, 1, false);
+        }
+
         Map<String, Object> body = new HashMap<>();
         body.put("action", "get-companies");
         body.put("limit", request.getLimit());
@@ -64,7 +75,7 @@ public class ApifySearchLinkedService implements SearchLinkedService {
             log.info("Raw Apify JSON response:\n{}", rawJson);
 
             if (rawJson == null || rawJson.isBlank()) {
-                return List.of();
+                return CompanySearchResponse.of(List.of(), 1, 1);
             }
 
             List<LinkedInCompanyDTO> companies = objectMapper.readValue(
@@ -72,7 +83,11 @@ public class ApifySearchLinkedService implements SearchLinkedService {
                     new TypeReference<>() {}
             );
 
-            return mapToCompanyDetails(companies);
+            Set<String> excludeIds = toLowerSet(request.getExcludeIds());
+            Set<String> excludeUrls = toLowerSet(request.getExcludeLinkedInUrls());
+            List<CompanyDetailsRequest> mapped = mapToCompanyDetails(companies, excludeIds, excludeUrls);
+            // Single-shot provider: never advertise more pages.
+            return new CompanySearchResponse(mapped, 1, 1, false);
 
         } catch (HttpClientErrorException e) {
             if (e.getStatusCode().value() == HttpStatus.REQUEST_TIMEOUT.value()) {
@@ -82,14 +97,18 @@ public class ApifySearchLinkedService implements SearchLinkedService {
                         e);
             }
             log.error("Apify LinkedIn API client error {}: {}", e.getStatusCode(), e.getResponseBodyAsString());
-            return List.of();
+            return new CompanySearchResponse(List.of(), 1, 1, false);
         } catch (Exception e) {
             log.error("Error calling Apify LinkedIn API: {}", e.getMessage(), e);
-            return List.of();
+            return new CompanySearchResponse(List.of(), 1, 1, false);
         }
     }
 
-    private List<CompanyDetailsRequest> mapToCompanyDetails(List<LinkedInCompanyDTO> companies) {
+    private List<CompanyDetailsRequest> mapToCompanyDetails(
+            List<LinkedInCompanyDTO> companies,
+            Set<String> excludeIds,
+            Set<String> excludeUrls
+    ) {
         List<CompanyDetailsRequest> result = new ArrayList<>();
         for (LinkedInCompanyDTO company : companies) {
             if (company.getStatus() != null && !"FOUND".equalsIgnoreCase(company.getStatus())) {
@@ -105,6 +124,16 @@ public class ApifySearchLinkedService implements SearchLinkedService {
                 log.warn("Skipping Apify row with empty name; status={} input={}", company.getStatus(), company.getInput());
                 continue;
             }
+
+            String linkedinUrl = blankToNull(company.getLinkedinUrl());
+            String id = blankToNull(company.getCompanyId());
+            if (id != null && excludeIds.contains(id.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            if (linkedinUrl != null && excludeUrls.contains(linkedinUrl.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+
             String website = company.getWebsiteUrl();
             String name = company.getName();
             String country = company.getHeadquarter() != null
@@ -114,8 +143,25 @@ public class ApifySearchLinkedService implements SearchLinkedService {
                     ? company.getHeadquarter().getCity()
                     : null;
             String domain = company.getIndustry();
-            result.add(new CompanyDetailsRequest(website, name, country, state, domain));
+            result.add(new CompanyDetailsRequest(website, name, country, state, domain, id, linkedinUrl));
         }
         return result;
+    }
+
+    private static Set<String> toLowerSet(List<String> values) {
+        Set<String> set = new HashSet<>();
+        if (values == null) {
+            return set;
+        }
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                set.add(v.trim().toLowerCase(Locale.ROOT));
+            }
+        }
+        return set;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 }

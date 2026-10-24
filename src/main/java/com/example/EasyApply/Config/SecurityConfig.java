@@ -40,12 +40,18 @@ public class SecurityConfig {
                                 "/login/**",
                                 "/logout",
                                 "/easyapply/auth/**",
+                                "/easyapply/billing/webhook",
+                                "/easyapply/billing/config",
                                 "/error"
                         ).permitAll()
                         .requestMatchers(
                                 "/easyapply/sendEmail",
                                 "/easyapply/sendEmailWithAttachment",
-                                "/easyapply/sendAutomatedEmailsWithAttachment"
+                                "/easyapply/sendAutomatedEmailsWithAttachment",
+                                "/easyapply/contacts/**",
+                                "/easyapply/billing/**",
+                                "/scrap/getEmails",
+                                "/scrap-sources/searchLinked"
                         ).authenticated()
                         .anyRequest().permitAll()
                 )
@@ -53,6 +59,14 @@ public class SecurityConfig {
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                                 new AntPathRequestMatcher("/easyapply/**")
+                        )
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/scrap/getEmails")
+                        )
+                        .defaultAuthenticationEntryPointFor(
+                                new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                                new AntPathRequestMatcher("/scrap-sources/searchLinked")
                         )
                 )
                 .oauth2Login(oauth2 -> oauth2

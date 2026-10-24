@@ -7,6 +7,7 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class HarvestCompanySearchResponse {
     private List<HarvestCompanyShort> elements;
+    private Pagination pagination;
     private String status;
     private String error;
 
@@ -16,6 +17,14 @@ public class HarvestCompanySearchResponse {
 
     public void setElements(List<HarvestCompanyShort> elements) {
         this.elements = elements;
+    }
+
+    public Pagination getPagination() {
+        return pagination;
+    }
+
+    public void setPagination(Pagination pagination) {
+        this.pagination = pagination;
     }
 
     public String getStatus() {
@@ -32,6 +41,64 @@ public class HarvestCompanySearchResponse {
 
     public void setError(String error) {
         this.error = error;
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class Pagination {
+        private int totalPages;
+        private int totalElements;
+        private int pageNumber;
+        private int previousElements;
+        private int pageSize;
+        private String paginationToken;
+
+        public int getTotalPages() {
+            return totalPages;
+        }
+
+        public void setTotalPages(int totalPages) {
+            this.totalPages = totalPages;
+        }
+
+        public int getTotalElements() {
+            return totalElements;
+        }
+
+        public void setTotalElements(int totalElements) {
+            this.totalElements = totalElements;
+        }
+
+        public int getPageNumber() {
+            return pageNumber;
+        }
+
+        public void setPageNumber(int pageNumber) {
+            this.pageNumber = pageNumber;
+        }
+
+        public int getPreviousElements() {
+            return previousElements;
+        }
+
+        public void setPreviousElements(int previousElements) {
+            this.previousElements = previousElements;
+        }
+
+        public int getPageSize() {
+            return pageSize;
+        }
+
+        public void setPageSize(int pageSize) {
+            this.pageSize = pageSize;
+        }
+
+        public String getPaginationToken() {
+            return paginationToken;
+        }
+
+        public void setPaginationToken(String paginationToken) {
+            this.paginationToken = paginationToken;
+        }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

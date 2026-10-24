@@ -1,9 +1,14 @@
 package com.example.EasyApply.Controllers;
 
+import com.example.EasyApply.Data.CustomEmail;
 import com.example.EasyApply.Data.CustomEmailResponse;
 import com.example.EasyApply.Data.EmailAttachment;
 import com.example.EasyApply.Data.EmailRequest;
+import com.example.EasyApply.Services.BillingService;
+import com.example.EasyApply.Services.ContactLibraryService;
 import com.example.EasyApply.Services.GmailService;
+import com.example.EasyApply.Services.UserAccountService;
+import com.example.EasyApply.domain.AppUser;
 import com.google.api.client.auth.oauth2.BearerToken;
 import com.google.api.client.auth.oauth2.Credential;
 import jakarta.mail.MessagingException;
@@ -11,8 +16,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
+import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,7 +30,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.List;
 import java.util.Locale;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/easyapply")
@@ -31,6 +40,15 @@ public class EmailController {
 
     @Autowired
     private GmailService gmailService;
+
+    @Autowired
+    private UserAccountService userAccountService;
+
+    @Autowired
+    private ContactLibraryService contactLibraryService;
+
+    @Autowired
+    private BillingService billingService;
 
     @GetMapping("/ss")
     public String a() {
@@ -88,12 +106,17 @@ public class EmailController {
     public ResponseEntity<?> sendAutomatedEmailsWithAttachment(
             @RequestPart("payload") EmailRequest emailRequest,
             @RequestPart(value = "attachment", required = false) MultipartFile attachment,
-            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient googleClient
+            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient googleClient,
+            @AuthenticationPrincipal OAuth2User oauthUser
     ) throws IOException {
         Credential credential = credentialFrom(googleClient);
-        if (credential == null) {
+        if (credential == null || oauthUser == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Sign in with Google first.");
         }
+        AppUser user = userAccountService.upsertFromOAuth(oauthUser);
+        int recipientCount = emailRequest.getEmailList() != null ? emailRequest.getEmailList().size() : 0;
+        billingService.assertCanSend(user, recipientCount);
+
         EmailAttachment emailAttachment = toEmailAttachment(attachment);
         if (attachment != null && !attachment.isEmpty() && !emailAttachment.isPresent()) {
             return ResponseEntity.badRequest().body("Attachment must be a PDF file.");
@@ -106,6 +129,13 @@ public class EmailController {
                 emailRequest.getEmailList(),
                 emailRequest.getSenderName()
         );
+        if (result.getSent() != null && !result.getSent().isEmpty()) {
+            List<String> sentEmails = result.getSent().stream()
+                    .map(CustomEmail::getEmail)
+                    .collect(Collectors.toList());
+            contactLibraryService.markSent(user, sentEmails);
+            billingService.recordSends(user, sentEmails.size());
+        }
         if (!result.isStatus()) {
             return ResponseEntity.badRequest().body(result);
         }

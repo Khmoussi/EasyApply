@@ -64,3 +64,9 @@ easyapply:
     oauth-token: ""
     resume-path: ${EASYAPPLY_RESUME_PATH:}
     sender-name: ${EASYAPPLY_SENDER_NAME:khmoussi aouina}
+  stripe:
+    secret-key: ${STRIPE_SECRET_KEY:}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET:}
+    price-starter: ${STRIPE_PRICE_STARTER:}
+    price-pro: ${STRIPE_PRICE_PRO:}
+
